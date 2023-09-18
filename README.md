@@ -50,10 +50,11 @@ type TestSubscriber struct {
 	priority  int
 }
 
-func (s *TestSubscriber) Handle(event events.Event[events.EventPayload]) {
+func (s *TestSubscriber) Handle(event events.Event[events.EventPayload]) error {
 	time.Sleep(event.(*TestEvent).delay)
 	s.isHandled = true
 	s.buffer += event.GetPayload().(string)
+	return nil
 }
 
 func (s *TestSubscriber) GetKey() events.EventKey {
@@ -85,16 +86,21 @@ func asyncExample() {
 }
 
 func syncExample() {
-	// sync dispatch (events dispatched in main goroutine)
-	hub.DispatchSync(&TestEvent{
+	// sync dispatch (events dispatched in main thread - blocking)
+	err := hub.DispatchSync(&TestEvent{
 		payload: "A",
 		delay:   100 * time.Millisecond,
 	})
-	hub.DispatchSync(&TestEvent{
+	if err != nil {
+        log.Fatal(err)
+    }
+	err = hub.DispatchSync(&TestEvent{
 		payload: "B",
 		delay:   0,
 	})
-	time.Sleep(120 * time.Millisecond)
+	if err != nil {
+        log.Fatal(err)
+    }
 
 	log.Print(subscriber.isHandled) // true
 	log.Print(subscriber.buffer)    // "AB" (because of sync dispatch)
@@ -117,8 +123,9 @@ type TestPrioritySubscriber struct {
 	priority int
 }
 
-func (s *TestPrioritySubscriber) Handle(event events.Event[events.EventPayload]) {
+func (s *TestPrioritySubscriber) Handle(event events.Event[events.EventPayload]) error {
 	*s.buffer += fmt.Sprintf("%d", s.priority)
+	return nil
 }
 
 func (s *TestPrioritySubscriber) GetKey() events.EventKey {
@@ -140,9 +147,14 @@ func priorityExample() {
 	hub.Subscribe(subscriber2)
 	hub.Subscribe(subscriber_1)
 	hub.Subscribe(subscriber0)
-	hub.DispatchSync(&TestPriorityEvent{})
-	hub.DispatchSync(&TestPriorityEvent{})
-	time.Sleep(20 * time.Millisecond)
+	err := hub.DispatchSync(&TestPriorityEvent{})
+	if err != nil {
+        log.Fatal(err)
+    }
+	err = hub.DispatchSync(&TestPriorityEvent{})
+	if err != nil {
+        log.Fatal(err)
+    }
 	
 	log.Print(buffer) // "-1012-1012" (according to priority)
 }

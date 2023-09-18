@@ -60,15 +60,16 @@ func (s *TestSuite) TestEventHub_DispatchSync() {
 	testingHub := GetEventHub()
 	subscriber := &TestSubscriber{}
 	testingHub.Subscribe(subscriber)
-	testingHub.DispatchSync(&TestEvent{
+	err := testingHub.DispatchSync(&TestEvent{
 		payload: "A",
 		delay:   100 * time.Millisecond,
 	})
-	testingHub.DispatchSync(&TestEvent{
+	s.Nil(err, "event should be handled")
+	err = testingHub.DispatchSync(&TestEvent{
 		payload: "B",
 		delay:   0,
 	})
-	time.Sleep(120 * time.Millisecond)
+	s.Nil(err, "event should be handled")
 	s.True(subscriber.isHandled, "event should be handled")
 	s.Equal("AB", subscriber.buffer, "sync event should be handled in order")
 }
@@ -84,9 +85,10 @@ func (s *TestSuite) TestEventHub_Priority() {
 	testingHub.Subscribe(subscriber2)
 	testingHub.Subscribe(subscriber_1)
 	testingHub.Subscribe(subscriber0)
-	testingHub.DispatchSync(&TestPriorityEvent{})
-	testingHub.DispatchSync(&TestPriorityEvent{})
-	time.Sleep(20 * time.Millisecond)
+	err := testingHub.DispatchSync(&TestPriorityEvent{})
+	s.Nil(err, "event should be handled")
+	err = testingHub.DispatchSync(&TestPriorityEvent{})
+	s.Nil(err, "event should be handled")
 	s.Equal("-1012-1012", buffer, "sync event should be handled by priority")
 }
 
@@ -94,8 +96,7 @@ func (s *TestSuite) TestEventHub_Close() {
 	testingHub := GetEventHub()
 	subscriber := &TestSubscriber{}
 	testingHub.Subscribe(subscriber)
-	s.Len(testingHub.asyncChannel, 0, "async channel should be closed")
-	s.Len(testingHub.syncChannel, 0, "sync channel should be closed")
+	s.Len(testingHub.channel, 0, "channel should be closed")
 }
 
 type TestEvent struct {
@@ -117,10 +118,11 @@ type TestSubscriber struct {
 	priority  int
 }
 
-func (s *TestSubscriber) Handle(event Event[EventPayload]) {
+func (s *TestSubscriber) Handle(event Event[EventPayload]) error {
 	time.Sleep(event.(*TestEvent).delay)
 	s.isHandled = true
 	s.buffer += event.GetPayload().(string)
+	return nil
 }
 
 func (s *TestSubscriber) GetKey() EventKey {
@@ -146,8 +148,9 @@ type TestPrioritySubscriber struct {
 	priority int
 }
 
-func (s *TestPrioritySubscriber) Handle(event Event[EventPayload]) {
+func (s *TestPrioritySubscriber) Handle(event Event[EventPayload]) error {
 	*s.buffer += fmt.Sprintf("%d", s.priority)
+	return nil
 }
 
 func (s *TestPrioritySubscriber) GetKey() EventKey {

@@ -16,15 +16,14 @@ type Event[T EventPayload] interface {
 }
 
 type EventHub struct {
-	subscribers  subscriberPool
-	priorities   []int
-	syncChannel  chan Event[EventPayload]
-	asyncChannel chan Event[EventPayload]
-	lock         sync.Mutex
+	subscribers subscriberPool
+	priorities  []int
+	channel     chan Event[EventPayload]
+	lock        sync.Mutex
 }
 
 type EventSubscriber[T Event[EventPayload]] interface {
-	Handle(event T)
+	Handle(event T) error
 	GetKey() EventKey
 	GetPriority() int
 }
@@ -43,39 +42,54 @@ func (h *EventHub) Subscribe(subscriber EventSubscriber[Event[EventPayload]]) {
 	h.lock.Unlock()
 }
 
-func (h *EventHub) DispatchSync(event Event[EventPayload]) {
-	h.syncChannel <- event
+func (h *EventHub) handleEvent(event Event[EventPayload], async bool) error {
+	if _, ok := h.subscribers[event.GetKey()]; ok {
+		subscribers := h.subscribers[event.GetKey()]
+		for _, priority := range h.priorities {
+			for _, subscriber := range subscribers[priority] {
+				if async {
+					go func() {
+						err := subscriber.Handle(event)
+						if err != nil {
+							log.Println(err)
+						}
+					}()
+					continue
+				}
+				err := subscriber.Handle(event)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (h *EventHub) DispatchSync(event Event[EventPayload]) error {
+	return h.handleEvent(event, false)
 }
 
 func (h *EventHub) DispatchAsync(event Event[EventPayload]) {
-	h.asyncChannel <- event
+	h.channel <- event
 }
 
-func (h *EventHub) run(channel chan Event[EventPayload], async bool) {
+func (h *EventHub) run(channel chan Event[EventPayload]) {
 	for {
 		event := <-channel
 		if event == nil {
 			log.Println("event hub closed")
 			return
 		}
-		if _, ok := h.subscribers[event.GetKey()]; ok {
-			subscribers := h.subscribers[event.GetKey()]
-			for _, priority := range h.priorities {
-				for _, subscriber := range subscribers[priority] {
-					if async {
-						go subscriber.Handle(event)
-						continue
-					}
-					subscriber.Handle(event)
-				}
-			}
+		err := h.handleEvent(event, true)
+		if err != nil {
+			log.Println(err)
 		}
 	}
 }
 
 func (h *EventHub) Close() {
-	close(h.syncChannel)
-	close(h.asyncChannel)
+	close(h.channel)
 }
 
 var hub *EventHub
@@ -83,12 +97,10 @@ var hub *EventHub
 func GetEventHub() *EventHub {
 	if hub == nil {
 		hub = &EventHub{
-			subscribers:  make(subscriberPool),
-			syncChannel:  make(chan Event[EventPayload]),
-			asyncChannel: make(chan Event[EventPayload]),
+			subscribers: make(subscriberPool),
+			channel:     make(chan Event[EventPayload]),
 		}
-		go hub.run(hub.syncChannel, false)
-		go hub.run(hub.asyncChannel, true)
+		go hub.run(hub.channel)
 	}
 	return hub
 }
