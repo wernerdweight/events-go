@@ -1,5 +1,11 @@
 package events
 
+import (
+	"log"
+	"sort"
+	"sync"
+)
+
 type EventKey string
 type EventPayload interface{}
 type subscriberPool map[EventKey]map[int][]EventSubscriber[Event[EventPayload]]
@@ -10,8 +16,11 @@ type Event[T EventPayload] interface {
 }
 
 type EventHub struct {
-	subscribers subscriberPool
-	channel     chan Event[EventPayload]
+	subscribers  subscriberPool
+	priorities   []int
+	syncChannel  chan Event[EventPayload]
+	asyncChannel chan Event[EventPayload]
+	lock         sync.Mutex
 }
 
 type EventSubscriber[T Event[EventPayload]] interface {
@@ -21,6 +30,7 @@ type EventSubscriber[T Event[EventPayload]] interface {
 }
 
 func (h *EventHub) Subscribe(subscriber EventSubscriber[Event[EventPayload]]) {
+	h.lock.Lock()
 	if _, ok := h.subscribers[subscriber.GetKey()]; !ok {
 		h.subscribers[subscriber.GetKey()] = make(map[int][]EventSubscriber[Event[EventPayload]])
 	}
@@ -28,19 +38,35 @@ func (h *EventHub) Subscribe(subscriber EventSubscriber[Event[EventPayload]]) {
 		h.subscribers[subscriber.GetKey()][subscriber.GetPriority()] = make([]EventSubscriber[Event[EventPayload]], 0)
 	}
 	h.subscribers[subscriber.GetKey()][subscriber.GetPriority()] = append(h.subscribers[subscriber.GetKey()][subscriber.GetPriority()], subscriber)
+	h.priorities = append(h.priorities, subscriber.GetPriority())
+	sort.Ints(h.priorities)
+	h.lock.Unlock()
 }
 
-func (h *EventHub) Dispatch(event Event[EventPayload]) {
-	h.channel <- event
+func (h *EventHub) DispatchSync(event Event[EventPayload]) {
+	h.syncChannel <- event
 }
 
-func (h *EventHub) run() {
+func (h *EventHub) DispatchAsync(event Event[EventPayload]) {
+	h.asyncChannel <- event
+}
+
+func (h *EventHub) run(channel chan Event[EventPayload], async bool) {
 	for {
-		event := <-h.channel
+		event := <-channel
+		if event == nil {
+			log.Println("event hub closed")
+			return
+		}
 		if _, ok := h.subscribers[event.GetKey()]; ok {
-			for _, priority := range h.subscribers[event.GetKey()] {
-				for _, subscriber := range priority {
-					go subscriber.Handle(event)
+			subscribers := h.subscribers[event.GetKey()]
+			for _, priority := range h.priorities {
+				for _, subscriber := range subscribers[priority] {
+					if async {
+						go subscriber.Handle(event)
+						continue
+					}
+					subscriber.Handle(event)
 				}
 			}
 		}
@@ -48,7 +74,8 @@ func (h *EventHub) run() {
 }
 
 func (h *EventHub) Close() {
-	close(h.channel)
+	close(h.syncChannel)
+	close(h.asyncChannel)
 }
 
 var hub *EventHub
@@ -56,10 +83,16 @@ var hub *EventHub
 func GetEventHub() *EventHub {
 	if hub == nil {
 		hub = &EventHub{
-			subscribers: make(subscriberPool),
-			channel:     make(chan Event[EventPayload]),
+			subscribers:  make(subscriberPool),
+			syncChannel:  make(chan Event[EventPayload]),
+			asyncChannel: make(chan Event[EventPayload]),
 		}
-		go hub.run()
+		go hub.run(hub.syncChannel, false)
+		go hub.run(hub.asyncChannel, true)
 	}
 	return hub
+}
+
+func ResetEventHub() {
+	hub = nil
 }
