@@ -37,6 +37,13 @@ func (h *EventHub) Subscribe(subscriber EventSubscriber[Event[EventPayload]]) {
 		h.subscribers[subscriber.GetKey()][subscriber.GetPriority()] = make([]EventSubscriber[Event[EventPayload]], 0)
 	}
 	h.subscribers[subscriber.GetKey()][subscriber.GetPriority()] = append(h.subscribers[subscriber.GetKey()][subscriber.GetPriority()], subscriber)
+	// only add priority if not yet present to avoid duplicates
+	for _, priority := range h.priorities {
+		if priority == subscriber.GetPriority() {
+			h.lock.Unlock()
+			return
+		}
+	}
 	h.priorities = append(h.priorities, subscriber.GetPriority())
 	sort.Ints(h.priorities)
 	h.lock.Unlock()
