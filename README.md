@@ -86,6 +86,10 @@ func asyncExample() {
 }
 
 func syncExample() {
+	hub := events.GetEventHub()
+	subscriber := &TestSubscriber{}
+	hub.Subscribe(subscriber)
+
 	// sync dispatch (events dispatched in main thread - blocking)
 	err := hub.DispatchSync(&TestEvent{
 		payload: "A",
