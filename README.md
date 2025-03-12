@@ -66,6 +66,7 @@ func (s *TestSubscriber) GetPriority() int {
 }
 
 func asyncExample() {
+	log.Print("asyncExample:")
 	hub := events.GetEventHub()
 	subscriber := &TestSubscriber{}
 	hub.Subscribe(subscriber)
@@ -86,6 +87,11 @@ func asyncExample() {
 }
 
 func syncExample() {
+	log.Print("syncExample:")
+	hub := events.GetEventHub()
+	subscriber := &TestSubscriber{}
+	hub.Subscribe(subscriber)
+
 	// sync dispatch (events dispatched in main thread - blocking)
 	err := hub.DispatchSync(&TestEvent{
 		payload: "A",
@@ -137,6 +143,7 @@ func (s *TestPrioritySubscriber) GetPriority() int {
 }
 
 func priorityExample() {
+	log.Print("priorityExample:")
 	hub := events.GetEventHub()
 	buffer := ""
 	subscriber1 := &TestPrioritySubscriber{buffer: &buffer, priority: 1}
